@@ -1,66 +1,83 @@
-## Foundry
+# ERC721 Marketplace Contract
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+## Contract Outline
 
-Foundry consists of:
+### State Variables
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+- `uint public listingCounter`: A counter to keep track of the number of listings.
 
-## Documentation
+### Structs
 
-https://book.getfoundry.sh/
+- `struct Listing`: A struct representing an ERC721 listing with fields for the listingId, order creator, ERC721 token address, token ID, price, signature, deadline and isSold.
 
-## Usage
+### Mapping
 
-### Build
+- `mapping(uint => Listing) public listings`: A mapping that associates listing IDs with their respective `Listing` structs.
 
-```shell
-$ forge build
-```
+## `createListing` Function
 
-### Test
+#### Parameters
 
-```shell
-$ forge test
-```
+- `address _tokenAddress`: The address of the ERC721 token.
+- `uint _tokenID`: The token ID of the ERC721 token.
+- `uint _price`: The price of the listing in ether.
+- `bytes memory _signature`: The seller's signature of the order data.
+- `uint _deadline`: The deadline for the listing.
 
-### Format
+#### Preconditions
 
-```shell
-$ forge fmt
-```
+- **Owner Check**:
 
-### Gas Snapshots
+  - Check that `msg.sender` is the owner of the token using `ownerOf(_tokenID)`.
 
-```shell
-$ forge snapshot
-```
+- **Approval Check**:
 
-### Anvil
+  - Check that `msg.sender` has approved the contract to spend the ERC721 token using `isApprovedForAll(msg.sender, address(this))`.
 
-```shell
-$ anvil
-```
+- **Token Address Validation**:
 
-### Deploy
+  - Check that `_tokenAddress` is not the zero address (`address(0)`).
+  - Check if `_tokenAddress` has code (is a smart contract).
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+- **Price Check**:
 
-### Cast
+  - Check that `_price` is greater than 0.
 
-```shell
-$ cast <subcommand>
-```
+- **Deadline Check**:
+  - Check that `_deadline` is greater than `block.timestamp`.
 
-### Help
+#### Logic
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+- Create a new `Listing` struct with the provided information.
+- Increment `listingCounter` to generate a new listing ID.
+- Store the `Listing` in the `listings` mapping using the new listing ID.
+
+## `executeListing` Function
+
+#### Parameters
+
+- `uint _listingId`: The ID of the listing to be executed.
+
+#### Preconditions
+
+- **Listing ID Check**:
+
+  - Check that `_listingId` is less than `listingCounter`.
+
+- **Payment Check**:
+
+  - Check that `msg.value` is equal to the price of the listing.
+
+- **Deadline Check**:
+
+  - Check that `block.timestamp` is less than or equal to the listing's deadline.
+
+- **Signature Verification**:
+  - Verify that the `_signature` is signed by the listing's owner.
+
+#### Logic
+
+- Retrieve the `Listing` information from storage based on `_listingId`.
+- Transfer ether from the buyer to the seller.
+- Transfer the ERC721 token from the seller to the buyer.
+- Mark the listing as completed (optional, but useful for preventing double purchases).

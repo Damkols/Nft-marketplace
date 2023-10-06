@@ -11,8 +11,8 @@ contract MarketPlaceTest is Helpers {
 
   uint256 currentOrderId;
 
-  address userA;
-  address userB;
+  address addrA;
+  address addrB;
 
   uint256 privKeyA;
   uint256 privKeyB;
@@ -23,8 +23,8 @@ contract MarketPlaceTest is Helpers {
     mPlace = new Marketplace();
     nft = new OurNFT();
 
-    (userA, privKeyA) = mkaddr("USERA");
-    (userB, privKeyB) = mkaddr("USERB");
+    (addrA, privKeyA) = mkaddr("USERA");
+    (addrB, privKeyB) = mkaddr("USERB");
 
     order = Marketplace.Order({
       token: address(nft),
@@ -36,26 +36,26 @@ contract MarketPlaceTest is Helpers {
       active: false
     });
 
-    nft.mint(userA, 1);
+    nft.mint(addrA, 1);
   }
 
   function testOwnerCannotCreateOrder() public {
-    order.owner = userB;
-    switchSigner(userB);
+    order.owner = addrB;
+    switchSigner(addrB);
 
     vm.expectRevert(Marketplace.NotOwner.selector);
     mPlace.createOrder(order);
   }
 
   function testNFTNotApproved() public {
-    switchSigner(userA);
+    switchSigner(addrA);
 
     vm.expectRevert(Marketplace.NotApproved.selector);
     mPlace.createOrder(order);
   }
 
   function testMinPriceTooLow() public {
-    switchSigner(userA);
+    switchSigner(addrA);
     nft.setApprovalForAll(address(mPlace), true);
     order.price = 0;
 
@@ -64,7 +64,7 @@ contract MarketPlaceTest is Helpers {
   }
 
   function testMinDeadline() public {
-    switchSigner(userA);
+    switchSigner(addrA);
     nft.setApprovalForAll(address(mPlace), true);
 
     vm.expectRevert(Marketplace.DeadlineTooSoon.selector);
@@ -72,7 +72,7 @@ contract MarketPlaceTest is Helpers {
   }
 
   function testMinDuration() public {
-    switchSigner(userA);
+    switchSigner(addrA);
     nft.setApprovalForAll(address(mPlace), true);
     order.deadline = uint88(block.timestamp + 59 minutes);
 
@@ -81,7 +81,7 @@ contract MarketPlaceTest is Helpers {
   }
 
   function testSignatureNotValid() public {
-    switchSigner(userA);
+    switchSigner(addrA);
     nft.setApprovalForAll(address(mPlace), true);
     order.deadline = uint88(block.timestamp + 120 minutes);
     order.signature = constructSig(
@@ -98,14 +98,14 @@ contract MarketPlaceTest is Helpers {
   }
 
   function testEditNonValidOrder() public {
-    switchSigner(userA);
+    switchSigner(addrA);
 
     vm.expectRevert(Marketplace.OrderNotExistent.selector);
     mPlace.editOrder(1, 0, false);
   }
 
   function testEditOrderNotOwner() public {
-    switchSigner(userA);
+    switchSigner(addrA);
     nft.setApprovalForAll(address(mPlace), true);
     order.deadline = uint88(block.timestamp + 120 minutes);
     order.signature = constructSig(
@@ -120,7 +120,7 @@ contract MarketPlaceTest is Helpers {
 
     // uint256 newOrderId = mPlace.createOrder(order);
 
-    // // switchSigner(userB);
+    // // switchSigner(addrB);
 
     // vm.expectRevert(Marketplace.NotOwner.selector);
     // mPlace.edit

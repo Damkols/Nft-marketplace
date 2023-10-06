@@ -1,207 +1,248 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
-import "forge-std/Test.sol";
-import {Test, console2} from "forge-std/Test.sol";
 
+import {Marketplace} from "../src/Marketplace.sol";
+import "../src/ERC721Mock.sol";
+import "./Helpers.sol";
 
-// import {Test} from "lib/forge-std/src/Test.sol";
-import {Market, Order} from "../src/Market.sol";
+contract MarketPlaceTest is Helpers {
+    Marketplace mPlace;
+    OurNFT nft;
 
+    uint256 currentOrderId;
 
-contract MarketTest is Test {
-     Market public market;
+    address userA;
+    address userB;
+
+    uint256 privKeyA;
+    uint256 privKeyB;
+
+    Marketplace.Order order;
 
     function setUp() public {
+        mPlace = new Marketplace();
+        nft = new OurNFT();
 
-        market = new Market();
+        (userA, privKeyA) = mkaddr("USERA");
+        (userB, privKeyB) = mkaddr("USERB");
 
-        address seller;
-        address tokenAddress = 0x25D0e89E6Df7ae8C0E8D1D9Bd0991CbE17d10628;
-        uint256 tokenID = 1;
-        uint256 price = 2;
-        uint256 deadline = 36646456;
+        order = Marketplace.Order({
+            token: address(nft),
+            tokenId: 1,
+            price: 1 ether,
+            signature: bytes(""),
+            deadline: 0,
+            owner: address(0),
+            active: false
+        });
 
-        address signer = vm.addr(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80);
-        deadline = 44445555221;
-
-        vm.startPrank(signer);
-        seller = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
-
-        bytes32 digest = keccak256(abi.encodePacked(tokenAddress, tokenID, price, deadline));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80, digest);
-        bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
-        vm.stopPrank();
-
-         market.createListing(tokenAddress, tokenID, price, signature, block.timestamp + 100);
-
+        nft.mint(userA, 1);
     }
 
+    function testOwnerCannotCreateOrder() public {
+        order.owner = userB;
+        switchSigner(userB);
 
-        function testsetUp() public {
-        market = new Market();
-        // address _tokenAddress,
-        // uint256 _tokenId,
-        // uint256 _price,
-        // bytes memory _signature,
-        // uint256 _deadline
-        address seller;
-        address tokenAddress = 0x25D0e89E6Df7ae8C0E8D1D9Bd0991CbE17d10628;
-        uint256 tokenId = 1;
-        uint256 price = 5;
-        uint256 deadline = 466252191;
+        vm.expectRevert(Marketplace.NotOwner.selector);
+        mPlace.createOrder(order);
+    }
 
-        vm.startPrank(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
-        seller = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
-        bytes32 digest = keccak256(
-            abi.encodePacked(seller, tokenAddress, tokenId, price,  deadline)
+    function testNFTNotApproved() public {
+        switchSigner(userA);
+        vm.expectRevert(Marketplace.NotApproved.selector);
+        mPlace.createOrder(order);
+    }
+
+    function testMinPriceTooLow() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.price = 0;
+        vm.expectRevert(Marketplace.MinPriceTooLow.selector);
+        mPlace.createOrder(order);
+    }
+
+    function testMinDeadline() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        vm.expectRevert(Marketplace.DeadlineTooSoon.selector);
+        mPlace.createOrder(order);
+    }
+
+    function testMinDuration() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.deadline = uint88(block.timestamp + 59 minutes);
+        vm.expectRevert(Marketplace.MinDurationNotMet.selector);
+        mPlace.createOrder(order);
+    }
+
+    function testSignatureNotValid() public {
+        // Test that signature is valid
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.deadline = uint88(block.timestamp + 120 minutes);
+        order.signature = constructSig(
+            order.token,
+            order.tokenId,
+            order.price,
+            order.deadline,
+            order.owner,
+            privKeyB
         );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
-            0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80,
-            digest
+        vm.expectRevert(Marketplace.InvalidSignature.selector);
+        mPlace.createOrder(order);
+    }
+
+    // EDIT Order
+    function testEditNonValidOrder() public {
+        switchSigner(userA);
+        vm.expectRevert(Marketplace.OrderNotExistent.selector);
+        mPlace.editOrder(1, 0, false);
+    }
+
+    function testEditOrderNotOwner() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.deadline = uint88(block.timestamp + 120 minutes);
+        order.signature = constructSig(
+            order.token,
+            order.tokenId,
+            order.price,
+            order.deadline,
+            order.owner,
+            privKeyA
         );
-        bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
-        vm.stopPrank();
+        // vm.expectRevert(Marketplace.OrderNotExistent.selector);
+        uint256 newOrderId = mPlace.createOrder(order);
 
-        market.createListing(tokenAddress, tokenId, price, signature, deadline);
-
+        switchSigner(userB);
+        vm.expectRevert(Marketplace.NotOwner.selector);
+        mPlace.editOrder(newOrderId, 0, false);
     }
 
+    function testEditOrder() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.deadline = uint88(block.timestamp + 120 minutes);
+        order.signature = constructSig(
+            order.token,
+            order.tokenId,
+            order.price,
+            order.deadline,
+            order.owner,
+            privKeyA
+        );
+        uint256 newOrderId = mPlace.createOrder(order);
+        mPlace.editOrder(newOrderId, 0.01 ether, false);
 
-    function testCreateListing() public {
-        // Arrange
-        uint tokenId = 1;
-        uint price = 10 ether;
-
-        address tokenAddress = 0x25D0e89E6Df7ae8C0E8D1D9Bd0991CbE17d10628;
-        uint256 deadline = 466252191;
-        (uint8 v, bytes32 r, bytes32 s)= vm.sign(0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d, keccak256(abi.encodePacked(msg.sender, tokenAddress, tokenId, price, block.timestamp + 100)));
-        bytes memory signature = abi.encodePacked(r, s, v);
-        
-
-        // Act
-        market.createListing(tokenAddress, tokenId, price, signature, deadline);
-
-        // Assert
-        Order memory order;
-        assertEq(order.listingId, 1);
-        assertEq(order.orderCreator, msg.sender);
-        assertEq(order.tokenAddress, tokenAddress);
-        assertEq(order.tokenID, tokenId);
-        assertEq(order.price, price);
-        assertEq(order.signature, signature);
-        assertEq(order.deadline, deadline);
-        assertEq(order.isSold, false);
+        Marketplace.Order memory _order = mPlace.getOrder(newOrderId);
+        assertEq(_order.price, 0.01 ether);
+        assertEq(_order.active, false);
     }
 
-    function testExecuteListing() public {
-        // Arrange
-        address tokenAddress = 0x25D0e89E6Df7ae8C0E8D1D9Bd0991CbE17d10628;
-        uint tokenId = 1;
-        uint price = 10 ether;
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80, keccak256(abi.encodePacked(msg.sender, tokenAddress, tokenId, price, block.timestamp + 100)));
-        bytes memory signature = abi.encodePacked(r, s, v);
-
-        // Create the listing
-        market.createListing(tokenAddress, tokenId, price, signature, block.timestamp + 100);
-
-        // Act
-        market.executeListing(keccak256(abi.encodePacked(msg.sender, tokenAddress, tokenId, price, block.timestamp + 100)), 1, signature);
-
-        // Assert
-        Order memory order;
-        assertEq(order.isSold, true);
+    // EXECUTE Order
+    function testExecuteNonValidOrder() public {
+        switchSigner(userA);
+        vm.expectRevert(Marketplace.OrderNotExistent.selector);
+        mPlace.executeOrder(1);
     }
 
-    function testSignature() public {
-        uint256 privateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-        // Computes the address for a given private key.
-        address seller = vm.addr(privateKey);
+    function testExecuteExpiredOrder() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+    }
 
-        // Test valid signature
-        bytes32 messageHash = keccak256("Signed by seller");
+    function testExecuteOrderNotActive() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.deadline = uint88(block.timestamp + 120 minutes);
+        order.signature = constructSig(
+            order.token,
+            order.tokenId,
+            order.price,
+            order.deadline,
+            order.owner,
+            privKeyA
+        );
+        uint256 newOrderId = mPlace.createOrder(order);
+        mPlace.editOrder(newOrderId, 0.01 ether, false);
+        switchSigner(userB);
+        vm.expectRevert(Marketplace.OrderNotActive.selector);
+        mPlace.executeOrder(newOrderId);
+    }
 
-        (uint8 v,bytes32 r, bytes32 s) = vm.sign(privateKey, messageHash);
-        address signer = ecrecover(messageHash, v, r, s);
+    function testFulfilOrderPriceNotEqual() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.deadline = uint88(block.timestamp + 120 minutes);
+        order.signature = constructSig(
+            order.token,
+            order.tokenId,
+            order.price,
+            order.deadline,
+            order.owner,
+            privKeyA
+        );
+        uint256 newOrderId = mPlace.createOrder(order);
+        switchSigner(userB);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Marketplace.PriceNotMet.selector,
+                order.price - 0.9 ether
+            )
+        );
+        mPlace.executeOrder{value: 0.9 ether}(newOrderId);
+    }
 
-        assertEq(signer, seller);
+    function testFulfilOrderPriceMismatch() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.deadline = uint88(block.timestamp + 120 minutes);
+        order.signature = constructSig(
+            order.token,
+            order.tokenId,
+            order.price,
+            order.deadline,
+            order.owner,
+            privKeyA
+        );
+        uint256 newOrderId = mPlace.createOrder(order);
+        switchSigner(userB);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Marketplace.PriceMismatch.selector,
+                order.price
+            )
+        );
+        mPlace.executeOrder{value: 1.1 ether}(newOrderId);
+    }
 
-        // Test invalid message
-        bytes32 invalidHash = keccak256("Not signed by Seller");
-        signer = ecrecover(invalidHash, v, r, s);
+    function testFulfilOrder() public {
+        switchSigner(userA);
+        nft.setApprovalForAll(address(mPlace), true);
+        order.deadline = uint88(block.timestamp + 120 minutes);
+        order.signature = constructSig(
+            order.token,
+            order.tokenId,
+            order.price,
+            order.deadline,
+            order.owner,
+            privKeyA
+        );
+        uint256 newOrderId = mPlace.createOrder(order);
+        switchSigner(userB);
+        uint256 userABalanceBefore = userA.balance;
 
-        assertTrue(signer != seller);
+        mPlace.executeOrder{value: order.price}(newOrderId);
+
+        uint256 userABalanceAfter = userA.balance;
+
+        Marketplace.Order memory _order = mPlace.getOrder(newOrderId);
+        assertEq(_order.price, 1 ether);
+        assertEq(_order.active, false);
+
+        assertEq(_order.active, false);
+        assertEq(ERC721(order.token).ownerOf(order.tokenId), userB);
+        assertEq(userABalanceAfter, userABalanceBefore + order.price);
     }
 }
-
-
-
-// contract CounterTest is Test {
-//     Market public market;
-
-//     function testsetUp() public {
-//         market = new Market();
-//         // address _tokenAddress,
-//         // uint256 _tokenId,
-//         // uint256 _price,
-//         // bytes memory _signature,
-//         // uint256 _deadline
-//         address seller;
-//         address tokenAddress = 0x25D0e89E6Df7ae8C0E8D1D9Bd0991CbE17d10628;
-//         uint256 tokenId = 1;
-//         uint256 price = 5;
-//         uint256 deadline = 466252191;
-
-//         vm.startPrank(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
-//         seller = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
-//         bytes32 digest = keccak256(
-//             abi.encodePacked(seller, tokenAddress, tokenId, price,  deadline)
-//         );
-//         (uint8 v, bytes32 r, bytes32 s) = vm.sign(
-//             0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80,
-//             digest
-//         );
-//         bytes memory signature = abi.encodePacked(r, s, v); // note the order here is different from line above.
-//         vm.stopPrank();
-
-//         market.createListing(tokenAddress, tokenId, price, signature, deadline);
-
-//         // nftMarketPlace.createOrder(
-//         //     tokenAddress,
-//         //     tokenId,
-//         //     price,
-//         //     signature,
-//         //     deadline
-//         // );
-//     }
-
-//         function testSignature() public {
-//         uint256 privateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-//         //  address seller;
-//         address tokenAddress = 0x25D0e89E6Df7ae8C0E8D1D9Bd0991CbE17d10628;
-//         uint256 tokenId = 1;
-//         uint256 price = 5;
-//         uint256 deadline = 466252191;
-//         // Computes the address for a given private key.
-//         address seller = vm.addr(privateKey);
-
-//         // Test valid signature
-//         bytes32 messageHash = keccak256(
-//             abi.encodePacked(seller, tokenAddress, tokenId, price,  deadline)
-//         );
-
-//         (uint8 v,bytes32 r, bytes32 s) = vm.sign(privateKey, messageHash);
-//         bytes memory signature = abi.encodePacked(r, s, v);
-//         address signer = ecrecover(messageHash, v, r, s);
-
-//         assertEq(signer, seller);
-
-//         // Test invalid message
-//         bytes32 invalidHash = keccak256("Not signed by Seller");
-//         signer = ecrecover(invalidHash, v, r, s);
-
-//         market.createListing(tokenAddress, tokenId, price, signature, deadline);
-
-//         assertTrue(signer != seller);
-//     }
-
-// }
